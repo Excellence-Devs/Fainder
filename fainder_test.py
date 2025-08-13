@@ -15,6 +15,10 @@ import random
 import threading
 from gemini_exp import random_person_generate, generate_person
 
+anketa = json.load(open("config.json", "r"))
+gemini_api_key = anketa["api_keys"]["gemini"]
+
+
 
 
 historys = {}
@@ -65,32 +69,31 @@ def swap_face(image_face_base64, target_base64):
 
 
 client = OpenAI(
-    api_key="AIzaSyBnJGw-F3C5Zg30SmdgPq9E087DgvG7fJA",
+    api_key=gemini_api_key,
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
 )
-clienti = Together(api_key="34fc99d79109ef8d1342ce42dd2aa27ac50eefea4d4a966b5f5355ba455750d8")
 tools = [
-    # {
-    #     "type": "function",
-    #     "function": {
-    #         "name": "image",
-    #         "description": "Ты отправляешь фотку, должен подробно описать что находиться на фото, делаешь запрос к Midjourney, описывай ракурс, одежду (по личности), комнату, видимость частей тела и так далее, главное на английском",
-    #         "parameters": {
-    #             "type": "object",
-    #             "properties": {
-    #                 "prompt": {
-    #                     "type": "string",
-    #                     "description": "The MidJourney prompt."
-    #                 },
-    #                 "face": {
-    #                     "type": "boolean",
-    #                     "description": "True if the face should be visible, False otherwise."
-    #                 }
-    #             },
-    #             "required": ["prompt", "face"]
-    #         }
-    #     }
-    # },
+    {
+        "type": "function",
+        "function": {
+            "name": "image",
+            "description": "Ты отправляешь фотку, должен подробно описать что находиться на фото, делаешь запрос к Midjourney, описывай ракурс, одежду (по личности), комнату, видимость частей тела и так далее, главное на английском",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "The MidJourney prompt."
+                    },
+                    "face": {
+                        "type": "boolean",
+                        "description": "True if the face should be visible, False otherwise."
+                    }
+                },
+                "required": ["prompt", "face"]
+            }
+        }
+    },
     {
         "type": "function",
         "function": {
@@ -312,7 +315,8 @@ def chat_main(page: ft.Page, id = "10118"):
     if not id in historys:
         msgs = [
         {"role": "system", "content": system},
-        {"role": "user", "content": "SYSTEM: Демид 18 лет, хожу в качалку миллионер езжу на ролс ройс, ище девушку. Член 19 см. плотненький ищу пошлую. Предпочтения в партнере: девушки от 16 до 20 с хорошей фигурой.  \nНапишите [Лайк], если нравиться, и [Дизлайк], если не нравиться привер ответа: 'лайк', 'дизлайк'"},
+        {"role": "user", "content": f"SYSTEM: {anketa.get('anketa')} Предпочтения в партнере: {anketa.get("needs")} \nНапишите [Лайк], если нравиться, и [Дизлайк], если не нравиться привер ответа: 'лайк', 'дизлайк'"},
+
         {"role": "assistant", "content": "лайк"}
             ]
         historys[id] = msgs
@@ -474,13 +478,16 @@ def chat_main(page: ft.Page, id = "10118"):
             otvet = "Извини, я не могу ответить на это сейчас."
 
             if response.choices:
+                print("Ответ присутствует")
                 choice = response.choices[0]
                 if choice.finish_reason == "tool_calls":
+                    print("Вызвана функция..", end="")
                     function_calls = choice.message.tool_calls
-                    # Append the assistant message that contained the tool_calls request
                     historys[id].append(choice.message)
                     for function in function_calls:
                         if function.function.name == "image":
+                            print("image")
+
                             try:
                                 prompt_json = json.loads(function.function.arguments)
                                 prompt_content = prompt_json["prompt"]
@@ -515,6 +522,8 @@ def chat_main(page: ft.Page, id = "10118"):
                                         "tool_call_id": function.id
                                     })
                         elif function.function.name == "block":
+                            print("block")
+
                             try:
                                 prompt_json = json.loads(function.function.arguments)
                                 reason = prompt_json["reason"]

@@ -1,0 +1,27 @@
+# Core framework
+flet>=0.21.0
+
+# AI and ML libraries
+openai>=1.0.0
+together>=0.2.0
+google-generativeai>=0.3.0
+
+# Image processing
+Pillow>=10.0.0
+requests>=2.31.0
+
+# Data validation and parsing
+pydantic>=2.0.0
+
+# Utilities
+base64
+json5
+threading
+io
+os-sys
+
+# Optional dependencies for enhanced functionality
+# Uncomment if needed:
+# numpy>=1.24.0
+# opencv-python>=4.8.0
+# matplotlib>=3.7.0

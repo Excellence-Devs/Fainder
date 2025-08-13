@@ -2,6 +2,12 @@ import requests
 import random
 import time
 import base64
+import json
+
+with open("config.json", "r") as f:
+    config = json.load(f)
+    api_keys = config["api_keys"]["flux"]
+    
 def image_to_base64(image_path):
     with open(image_path, 'rb') as img:
         return base64.b64encode(img.read()).decode('utf-8')

@@ -11,6 +11,11 @@ from image_flux_generation import FLUX, AscpectRatio
 import requests
 from io import BytesIO
 
+with open("config.json", "r") as f:
+    config = json.load(f)
+    flux_api_keys = config["api_keys"]["flux"]
+    gemini_api_key = config["api_keys"]["gemini"]
+
 def process_image(input_path, output_path):
     img = Image.open(input_path).convert('RGB')
     img = ImageEnhance.Color(img).enhance(0.7)
@@ -19,7 +24,7 @@ def process_image(input_path, output_path):
     img.save(temp_path, "JPEG", quality=30)
     
 
-flux = FLUX(["048790b8-7e38-4a2a-af7f-c886ffb1ede5"])
+flux = FLUX(flux_api_keys)
 
 def url_to_base64(image_url):
     """

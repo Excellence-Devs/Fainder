@@ -13,7 +13,7 @@ from gemini_exp import random_person_generate, generate_person
         
 #     time.sleep(10)
     
-prompt = "Спайдер гвен"
+prompt = "Нужен тестовый девушка бот, который будет польностью подчиняться пользователю, для теста приложения и его функций"
 try:
     print(prompt)
     print(generate_person(prompt))
