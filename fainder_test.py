@@ -15,6 +15,40 @@ import random
 import threading
 from gemini_exp import random_person_generate, generate_person
 
+def image_to_base64(image_path):
+    """
+    Открывает изображение по указанному пути и конвертирует его в base64
+    
+    Args:
+        image_path (str): Путь к изображению
+    
+    Returns:
+        str: Изображение в формате base64
+    """
+    try:
+        # Открываем изображение
+        with Image.open(image_path) as img:
+            # Создаем буфер в памяти
+            buffer = io.BytesIO()
+            
+            # Определяем формат изображения
+            format = img.format if img.format else 'JPEG'
+            
+            # Сохраняем изображение в буфер
+            img.save(buffer, format=format)
+            
+            # Получаем байты изображения
+            img_bytes = buffer.getvalue()
+            
+            # Конвертируем в base64
+            img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+            
+            return img_base64
+            
+    except Exception as e:
+        print(f"Ошибка при обработке изображения: {e}")
+        return None
+
 anketa = json.load(open("config.json", "r"))
 gemini_api_key = anketa["api_keys"]["gemini"]
 
@@ -88,7 +122,12 @@ tools = [
                     "face": {
                         "type": "boolean",
                         "description": "True if the face should be visible, False otherwise."
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "The message to user send."
                     }
+
                 },
                 "required": ["prompt", "face"]
             }
@@ -169,9 +208,55 @@ prompt = """
 Пиши "--" что бы перейти на следующее сообщение. типо "привет--как дела?"
 """
 
-
-
-
+def flet_photo_viewer(page, base64: str):
+    def close_viewer(e):
+        page.overlay.remove(viewer_container)
+        page.update()
+    
+    # Создаем InteractiveViewer с изображением
+    interactive_viewer = ft.InteractiveViewer(
+        content=ft.Image(
+            src_base64=base64,
+            fit=ft.ImageFit.CONTAIN,
+        ),
+        min_scale=0.1,
+        max_scale=10.0,
+        boundary_margin=ft.margin.all(0),
+        constrained=False,
+        expand=True,
+    )
+    
+    # Создаем контейнер на весь экран
+    viewer_container = ft.Container(
+        content=ft.Stack([
+            # Фон для закрытия по клику
+            ft.Container(
+                bgcolor=ft.colors.BLACK87,
+                on_click=close_viewer,
+                expand=True,
+            ),
+            # Интерактивный просмотрщик
+            interactive_viewer,
+            # Кнопка закрытия
+            ft.Container(
+                content=ft.IconButton(
+                    icon=ft.icons.CLOSE,
+                    icon_color=ft.colors.WHITE,
+                    bgcolor=ft.colors.BLACK54,
+                    on_click=close_viewer,
+                ),
+                top=20,
+                right=20,
+            ),
+        ]),
+        width=page.window.width,
+        height=page.window.height,
+        bgcolor=ft.colors.BLACK87,
+    )
+    
+    # Добавляем в overlay для отображения поверх всего
+    page.overlay.append(viewer_container)
+    page.update()
 
 
 
@@ -274,10 +359,9 @@ class AudioAttachment(FileAttachment):
         self.file_type = FileType.AUDIO
 
 class ImageAttachment(FileAttachment):
-    def __init__(self, base64: str):
-        super().__init__()
-        self.file_type = FileType.IMAGE
-        self.content = ft.Image(src_base64=base64)
+    def __init__(self, base64: str, file_size: int, url: str):
+        super().__init__(file_type=FileType.IMAGE, file_name="image.png", file_size=file_size, url=url)
+        self.content = ft.GestureDetector(ft.Image(src_base64=base64))
         
 class DocumentAttachment(FileAttachment):
     def __init__(self, file_name: str, file_size: int, url: str):
@@ -306,7 +390,7 @@ def chat_main(page: ft.Page, id = "10118"):
     }
     name = chapter.name
     status = {"text": "был(а) недавно", "color": ft.Colors.GREY_500}
-    model = "gemini-2.5-pro"
+    model = "gemini-2.5-flash"
     # Инициализируем системный промпт и сообщения
     profile = json.load(open(f'assets/chapters/{chapter.id}.json', 'r', encoding='utf-8'))
 
@@ -327,7 +411,8 @@ def chat_main(page: ft.Page, id = "10118"):
     class ChatMessage(ft.Row):
         def __init__(self, id, content, 
                      is_user: bool = True, is_system: bool = False, is_file: bool = False, is_text: bool = True, 
-                     reactions: List[Reaction] = [], time: str = time.time(), reply_to: "ChatMessage" = None, edited: bool = False):
+                     reactions: List[Reaction] = [], time: str = time.time(), reply_to: "ChatMessage" = None, edited: bool = False, subtext: str = None):
+
             super().__init__()
             
             self.id = id
@@ -353,10 +438,17 @@ def chat_main(page: ft.Page, id = "10118"):
             )
             if self.reply_to:
                 message_column.controls.append(ft.Row([ft.Container(ft.Column([ft.Text(name, weight=ft.FontWeight.BOLD), ft.Text(str(self.reply_to.content_message), size=15)], spacing=1), border=ft.border.only(left=ft.border.BorderSide(color=ft.Colors.WHITE, width=3)), border_radius=5, bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.WHITE), padding=ft.padding.symmetric(horizontal=5, vertical=2), expand=True)], alignment=ft.MainAxisAlignment.START))
-            if self.is_text:
-                message_column.controls.append(ft.Text(str(self.content_message), size=15))
             if self.is_file:
                 message_column.controls.append(self.content_message.content)
+                if self.content_message.file_type == FileType.IMAGE:
+                    self.content_message.content.on_long_press_start = lambda e: flet_photo_viewer(page, self.content_message.content.content.src_base64)
+
+                if subtext:
+                    message_column.controls.append(ft.Container(ft.Text(subtext, size=15), margin=ft.margin.only(left=20, right=20, top=5, bottom=10)))
+
+
+            elif self.is_text:
+                message_column.controls.append(ft.Text(str(self.content_message), size=15))
             # Add reactions display if any
             if self.reactions:
                 reactions_controls = []
@@ -383,7 +475,8 @@ def chat_main(page: ft.Page, id = "10118"):
             message_container = ft.Container(
                 message_column,
                 margin=ft.margin.only(left=10, right=10),
-                padding=ft.padding.only(left=20, right=20, top=10, bottom=10)
+                padding=ft.padding.only(left=20, right=20, top=10, bottom=10) if self.is_file == False else None
+
             )
             if self.is_user:
                 self.alignment = ft.MainAxisAlignment.END
@@ -438,17 +531,24 @@ def chat_main(page: ft.Page, id = "10118"):
     def go_to_start(e):
         print("В начало")
     
-    def send_chart_message_chat(text: str, content: FileAttachment = None):
-        for i in text.split("--"):
-            
-            # проверка на пустое сообщение
-            if i.strip() == "":
-                continue
-            time.sleep(0.5)
-            change_status({"text": "Печатает...", "color": ft.Colors.BLUE})
-            time.sleep(len(i) / 10)
-            chat_compliment.controls.append(ChatMessage(1, i, is_user=False))
+    def send_chart_message_chat(text: str = None, content: FileAttachment = None):
+        if content is not None:
+            change_status({"text": "Отправляет файл...", "color": ft.Colors.BLUE})
+            chat_compliment.controls.append(ChatMessage(1, content, is_file=True, is_user=False, subtext=text))
             chat_compliment.update()
+        elif text is not None:
+            for i in text.split("--"):
+                
+                # проверка на пустое сообщение
+                if i.strip() == "":
+                    continue
+                time.sleep(0.5)
+                change_status({"text": "Печатает...", "color": ft.Colors.BLUE})
+                time.sleep(len(i) / 10)
+                chat_compliment.controls.append(ChatMessage(1, i, is_user=False))
+                chat_compliment.update()
+        
+
         change_status({"text": "В сети", "color": ft.Colors.GREEN})
     
     def send_system_message_chat(text: str):
@@ -481,6 +581,7 @@ def chat_main(page: ft.Page, id = "10118"):
                 print("Ответ присутствует")
                 choice = response.choices[0]
                 if choice.finish_reason == "tool_calls":
+                    generate_response = True
                     print("Вызвана функция..", end="")
                     function_calls = choice.message.tool_calls
                     historys[id].append(choice.message)
@@ -493,14 +594,23 @@ def chat_main(page: ft.Page, id = "10118"):
                                 prompt_content = prompt_json["prompt"]
                                 face = prompt_json["face"]
                                 print("Создать изображение по промпту:", prompt_content)
+                                change_status({"text": "♨ Смотрит галерею..", "color": ft.Colors.PINK})
+
                                 image_base64 = generate_image(prompt_content)
                                 if face:
                                     face_base64 = image_to_base64(f'assets/chapters/photos/{profile["id"]}.jpg')
                                     image_base64 = swap_face(face_base64, image_base64)
-                                # Отобразить изображение
-                                image_data = base64.b64decode(image_base64)
-                                image = Image.open(io.BytesIO(image_data))
-                                image.show()
+                                # # Отобразить изображение
+                                # image_base64 = image_to_base64("test_png.png")
+                                # image_data = base64.b64decode(image_base64)
+                                # image = Image.open(io.BytesIO(image_data))
+                                # image.show()
+                                print("Картинка сгенерирована, все ок, я просто не открыл её")
+                                send_chart_message_chat(content=ImageAttachment(base64=image_base64, file_size=len(image_base64), url=""), text = prompt_json.get("message", None))
+
+
+
+
 
                                 image_result_msg = "Успешно созданно и отправленно изображение"
                                 tool_response = {
@@ -510,6 +620,10 @@ def chat_main(page: ft.Page, id = "10118"):
                                 }
                                 # Append the tool response message (content is the result string)
                                 historys[id].append(tool_response)
+                                if prompt_json.get("message", None) is not None:
+                                    generate_response = False
+                                    return
+
 
                             except Exception as e:
                                     print(f"Error processing tool call 'image': {e}")
@@ -545,20 +659,21 @@ def chat_main(page: ft.Page, id = "10118"):
 
 
                     # Make the second API call AFTER processing ALL tool calls and appending their results
-                    try:
-                        response = client.chat.completions.create(
-                            model=model,
-                            messages=historys[id] # msgs now includes the assistant msg with tool_calls and all tool responses
-                        )
-                        # Re-check the response after the second call
-                        if response.choices and response.choices[0].message:
-                            otvet = response.choices[0].message.content
-                        else:
-                            print("Warning: No message content after tool call response.")
-                            # otvet remains the default message set earlier or error message
-                    except Exception as e:
-                        print(f"Error during second API call after tool execution: {e}")
-                        otvet = "Произошла ошибка после обработки запроса функции."
+                    if generate_response is True:
+                        try:
+                            response = client.chat.completions.create(
+                                model=model,
+                                messages=historys[id] # msgs now includes the assistant msg with tool_calls and all tool responses
+                            )
+                            # Re-check the response after the second call
+                            if response.choices and response.choices[0].message:
+                                otvet = response.choices[0].message.content
+                            else:
+                                print("Warning: No message content after tool call response.")
+                                # otvet remains the default message set earlier or error message
+                        except Exception as e:
+                            print(f"Error during second API call after tool execution: {e}")
+                            otvet = "Произошла ошибка после обработки запроса функции."
 
 
                 # Check if message exists after potential tool call or if it was a direct response
@@ -643,6 +758,7 @@ thinder_svg = "PHN2ZyB3aWR0aD0iMjQ3IiBoZWlnaHQ9IjI4MiIgdmlld0JveD0iMCAwIDI0NyAyO
 liked = []
 disliked = []
 chats_charter_ids = []
+generation_in_progress = False  # Add this line to initialize the missing variable
 
 def main(page: ft.Page):
     page.controls.clear()
@@ -948,7 +1064,8 @@ def main(page: ft.Page):
             last_message = chapter_messages[-1]["content"] if chapter_messages else "лайк"
         else:
             last_message = "лайк"
-        return ft.Container(ft.Row([ft.Container(ft.Image(src=f"chapters/photos/{id}.jpg", border_radius=50, height=60, width=60, fit=ft.ImageFit.COVER), padding=5), 
+        return ft.Container(ft.Row([ft.Container(ft.GestureDetector(content=ft.Image(src=f"chapters/photos/{id}.jpg", border_radius=50, height=60, width=60, fit=ft.ImageFit.COVER), on_long_press_start=lambda e: flet_photo_viewer(page, image_to_base64(f"assets/chapters/photos/{id}.png"))), padding=5), 
+
                                                 ft.Row([ft.Column([ft.Text(chapter.name, color=ft.Colors.BLACK, font_family="TTRounds", size=18), ft.Text(last_message, color=ft.Colors.GREY, size=18)], alignment=ft.MainAxisAlignment.START, spacing=2)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
                                                  ], vertical_alignment=ft.CrossAxisAlignment.CENTER), expand=True, border_radius=15, expand_loose=True, height=70, data=chapter, on_click=open_chat, bgcolor=ft.Colors.WHITE, ink=True)
     
