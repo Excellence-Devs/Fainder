@@ -15,7 +15,7 @@ from chapter import Chapter
 import random
 import threading
 from gemini_exp import random_person_generate, generate_person
-
+from flet_rive import Rive, rive
 
 
 # Проверка существования папки chats/
@@ -592,7 +592,11 @@ def chat_main(page: ft.Page, id = "10118"):
 
 
     # Изменение статуса
-    def change_status(new_status: Dict[str, ft.Colors] = {"text": "В сети", "color": ft.Colors.GREEN}):
+    def change_status(new_status: Dict[str, ft.Colors] = {"text": "В сети", "color": ft.Colors.GREEN, "rive": "typing"}):
+        status_rive.src = f"assets/rive/status/{new_status.get('rive', 'no_signal')}.riv"
+
+        status_rive.update()
+
         status_text.value = new_status.get("text", "Подключение...")
         status_text.color = new_status.get("color", ft.Colors.GREY_500)
         status_text.update()
@@ -635,7 +639,9 @@ def chat_main(page: ft.Page, id = "10118"):
     
     def send_chart_message_chat(text: str = None, content: FileAttachment = None):
         if content is not None:
-            change_status({"text": "Отправляет файл...", "color": ft.Colors.BLUE})
+            change_status({"text": "Отправляет файл...", "color": ft.Colors.BLUE, "rive": "sending_attachment"})
+
+
             sptext = text.split("--")
             chat_compliment.controls.append(ChatMessage(1, content, is_file=True, is_user=False, subtext=sptext[0]))
 
@@ -643,9 +649,10 @@ def chat_main(page: ft.Page, id = "10118"):
             for i in sptext:
                 if i.strip() == "":
                     continue
-                time.sleep(0.5)
-                change_status({"text": "Печатает...", "color": ft.Colors.BLUE})
-                time.sleep(len(i) / 10)
+                time.sleep(0.05)
+                change_status({"text": "Печатает...", "color": ft.Colors.BLUE, "rive": "typing"})
+
+                time.sleep(0.001)
                 chat_compliment.controls.append(ChatMessage(1, i, is_user=False))
                 chat_compliment.update()
 
@@ -656,14 +663,16 @@ def chat_main(page: ft.Page, id = "10118"):
                 # проверка на пустое сообщение
                 if i.strip() == "":
                     continue
-                time.sleep(0.5)
-                change_status({"text": "Печатает...", "color": ft.Colors.BLUE})
-                time.sleep(len(i) / 10)
+                time.sleep(0.05)
+                change_status({"text": "Печатает...", "color": ft.Colors.BLUE, "rive": "typing"})
+
+                time.sleep(0.001)
                 chat_compliment.controls.append(ChatMessage(1, i, is_user=False))
                 chat_compliment.update()
         
 
-        change_status({"text": "В сети", "color": ft.Colors.GREEN})
+        change_status({"text": "В сети", "color": ft.Colors.GREEN, "rive": "active"})
+
         save_chat(id, chat_compliment.controls, historys[id])
 
     
@@ -721,18 +730,26 @@ def chat_main(page: ft.Page, id = "10118"):
                                 prompt_content = prompt_json["prompt"]
                                 face = prompt_json["face"]
                                 print("Создать изображение по промпту:", prompt_content)
-                                change_status({"text": "♨ Смотрит галерею..", "color": ft.Colors.PINK})
+                                change_status({"text": "  Смотрит галерею..", "color": ft.Colors.PINK, "rive": "exploring_gallery"})
+
 
                                 image_base64 = generate_image(prompt_content)
+                                print("[] Картинка сгенерирована...")
                                 if face:
+                                    print("[] Есть лицо, замена лица...", end="")
                                     face_base64 = image_to_base64(f'assets/chapters/photos/{profile["id"]}.jpg')
-                                    image_base64 = swap_face(face_base64, image_base64)
+                                    try:
+                                        image_base64 = swap_face(face_base64, image_base64)
+                                        print("Успех!")
+                                    except Exception as e:
+                                        print("Ошибка замены лица", e)
+
                                 # # Отобразить изображение
                                 # image_base64 = image_to_base64("test_png.png")
                                 # image_data = base64.b64decode(image_base64)
                                 # image = Image.open(io.BytesIO(image_data))
                                 # image.show()
-                                print("Картинка сгенерирована, все ок, я просто не открыл её")
+                                print("Картинка сгенерирована и отправляется...")
                                 send_chart_message_chat(content=ImageAttachment(base64=image_base64, file_size=len(image_base64), url=""), text = prompt_json.get("message", None))
 
 
@@ -771,7 +788,8 @@ def chat_main(page: ft.Page, id = "10118"):
                                 print(f"Блокировка пользователя: {reason}")
                                 # Добавьте код для блокировки пользователя здесь
                                 # Например, вы можете добавить его в список disliked
-                                change_status({"text": "Был(а) давно", "color": ft.Colors.GREY_500})
+                                change_status({"text": "Был(а) давно", "color": ft.Colors.GREY_500, "rive": "no_signal"})
+
                                 otvet = "Вы были заблокированы"
                                 # send_system_message_chat(otvet)
                                 message_input.disabled = True
@@ -830,6 +848,7 @@ def chat_main(page: ft.Page, id = "10118"):
     back_icon = ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, on_click=lambda e: main(page))
     name_text = ft.Text(name, size=15)
     status_text = ft.Text(status["text"], color=status["color"])    
+    status_rive = Rive(src = "assets/rive/status/no_signal.riv", width=20, height=20)
     menu_actions = ft.PopupMenuButton(
                     items=[
                         ft.PopupMenuItem(text="Поиск", icon=ft.Icons.SEARCH, on_click=search_user),
@@ -848,7 +867,8 @@ def chat_main(page: ft.Page, id = "10118"):
             ft.Row([
                 ft.Row([back_icon, 
                 avatar,
-                ft.Container(ft.Column([name_text, status_text], spacing=1, alignment=ft.MainAxisAlignment.CENTER))]),
+                ft.Container(ft.Column([name_text, ft.Row([status_rive, status_text], spacing=2)], spacing=1, alignment=ft.MainAxisAlignment.CENTER))]),
+
                 menu_actions,
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.SPACE_BETWEEN
                    ),
@@ -1314,6 +1334,6 @@ def main(page: ft.Page):
     go_to_chats()
     
     # show_notification(content=ft.Row([ft.Text("Всего 4 профиля", color=ft.Colors.BLACK, font_family="TTRounds", size=15)], alignment=ft.MainAxisAlignment.CENTER), on_click=None)
-ft.app(main, assets_dir="assets", view=ft.AppView.WEB_BROWSER)
+ft.app(main, assets_dir="assets")
 
 
