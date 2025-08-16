@@ -1,3 +1,4 @@
+from pickle import NONE
 from openai import OpenAI
 import json
 import os
@@ -14,6 +15,13 @@ from chapter import Chapter
 import random
 import threading
 from gemini_exp import random_person_generate, generate_person
+
+
+
+# Проверка существования папки chats/
+if not os.path.exists("chats"):
+    os.makedirs("chats")
+
 
 def image_to_base64(image_path):
     """
@@ -46,10 +54,11 @@ def image_to_base64(image_path):
             return img_base64
             
     except Exception as e:
-        print(f"Ошибка при обработке изображения: {e}")
+        print(f"! Ошибка при обработке изображения: {e}")
         return None
 
-anketa = json.load(open("config.json", "r"))
+anketa = json.load(open("config.json", "r", encoding="utf-8"))
+
 gemini_api_key = anketa["api_keys"]["gemini"]
 
 
@@ -326,12 +335,23 @@ class FileAttachment:
         self.file_name = file_name
         self.file_size = file_size
         self.url = url
+    
+    def json(self):
+        return {
+            "file_type": self.file_type,
+            "file_name": self.file_name,
+            "file_size": self.file_size,
+            "url": self.url,
+        }
+
+
         
 
 class StickerAttachment(FileAttachment):
     def __init__(self, file_name: str, file_size: int, url: str):
         super().__init__(file_name, file_size, url)
         self.file_type = FileType.STICKER
+
         
 class GifAttachment(FileAttachment):
     def __init__(self, file_name: str, file_size: int, url: str):
@@ -359,9 +379,23 @@ class AudioAttachment(FileAttachment):
         self.file_type = FileType.AUDIO
 
 class ImageAttachment(FileAttachment):
-    def __init__(self, base64: str, file_size: int, url: str):
-        super().__init__(file_type=FileType.IMAGE, file_name="image.png", file_size=file_size, url=url)
+    def __init__(self, base64: str, file_size: int, url: str, file_name: str = "image.png"):
+        super().__init__(file_type=FileType.IMAGE, file_name=file_name, file_size=file_size, url=url)
+        self.__base64 = base64
+
         self.content = ft.GestureDetector(ft.Image(src_base64=base64))
+
+    def json(self):
+        return {
+            "file_type": self.file_type,
+            "file_name": self.file_name,
+            "file_size": self.file_size,
+            "url": self.url,
+            "content": self.__base64,
+        }
+
+
+
         
 class DocumentAttachment(FileAttachment):
     def __init__(self, file_name: str, file_size: int, url: str):
@@ -375,6 +409,44 @@ class FileOtherAttachment(FileAttachment):
 
 
         
+
+
+def save_chat(id: str, messages: List["ChatMessage"], openai_history: List[dict]):
+    """
+    Сохранение чата с id, сообщениями и историей openai
+    """
+
+
+    print("[] Сохранение чата с id:", id)
+    saveing_dict = {"chat": [], "ai": openai_history}
+    for message in messages:
+        saveing_dict["chat"].append(message.json())
+    
+    try:
+        json.dump(saveing_dict, open(f"chats/{id}.json", "w", encoding='utf-8'), ensure_ascii=False, indent=4)
+        print("[] Успешное сохранение!")
+    except Exception as e:
+        print(f"! Ошибка при сохранении чата: {e}")
+
+
+def load_chat(id: str):
+    """
+    Загрузка чата с id
+    """
+    if f"{id}.json" not in os.listdir("chats"):
+        return None
+    try:
+        data = json.load(open(f"chats/{id}.json", "r", encoding='utf-8'))
+        print("[] Успешная загрузка!")
+        return data
+    except Exception as e:
+        print(f"! Ошибка при загрузке чата: {e}")
+        return None
+
+
+
+
+
 
 def chat_main(page: ft.Page, id = "10118"):
     chapter = Chapter(id)
@@ -396,14 +468,27 @@ def chat_main(page: ft.Page, id = "10118"):
 
     prompt_sys = json.dumps(profile, indent=4, ensure_ascii=False)
     system = prompt.format(prompt_sys)
-    if not id in historys:
+    if not f"{id}.json" in os.listdir("chats"):
         msgs = [
         {"role": "system", "content": system},
-        {"role": "user", "content": f"SYSTEM: {anketa.get('anketa')} Предпочтения в партнере: {anketa.get("needs")} \nНапишите [Лайк], если нравиться, и [Дизлайк], если не нравиться привер ответа: 'лайк', 'дизлайк'"},
+        {"role": "user", "content": f"SYSTEM: {anketa.get('anketa')} Предпочтения в партнере: {anketa.get("needs")} \nНапишите [Лайк], если нравиться, и [Дизлайк], если не нравиться привер ответа: 'лайк', 'дизлайк'. После ответа 'лайк' ты начнешь общаться непосредственно с пользователем"},
 
         {"role": "assistant", "content": "лайк"}
             ]
         historys[id] = msgs
+    else:
+        chat_data = load_chat(id)
+        if chat_data is not None:
+            historys[id] = chat_data["ai"]
+        else:
+            # Если файл чата не найден или поврежден, создаем новую историю
+            msgs = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"SYSTEM: {anketa.get('anketa')} Предпочтения в партнере: {anketa.get('needs')} \nНапишите [Лайк], если нравиться, и [Дизлайк], если не нравиться привер ответа: 'лайк', 'дизлайк'"},
+            {"role": "assistant", "content": "лайк"}
+                ]
+            historys[id] = msgs
+
     
     
     # Функции для взаимодействия с ui чата
@@ -425,6 +510,7 @@ def chat_main(page: ft.Page, id = "10118"):
             self.time = time
             self.reply_to = reply_to
             self.edited = edited
+            self.subtext = subtext
 
             if is_system:
                 self.controls.extend([ft.Divider(color=ft.Colors.GREY_500), ft.Text(str(self.content_message), size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_500), ft.Divider(color=ft.Colors.GREY_500)])
@@ -460,7 +546,7 @@ def chat_main(page: ft.Page, id = "10118"):
                             border_radius=20, 
                             padding=ft.padding.symmetric(horizontal=5, vertical=2),
                             ink=True,
-                            on_click=lambda e: print(f"Reaction clicked: {reaction_emoji}")
+                            on_click=lambda e: print(f"() Реакция нажата: {reaction_emoji}")
                         )
                     )
                 
@@ -488,6 +574,22 @@ def chat_main(page: ft.Page, id = "10118"):
                 message_container.border_radius = ft.border_radius.only(top_left=5, top_right=20, bottom_left=5, bottom_right=20)
             
             self.controls.append(ft.Container(message_container, width=page.width - 100))
+        
+        def json(self):
+            return {
+                "id": self.id,
+                "content": self.content_message.json() if self.is_file == True else self.content_message,
+                "is_user": self.is_user,
+                "is_system": self.is_system,
+                "is_file": self.is_file,
+                "is_text": self.is_text,
+                "reactions": self.reactions,
+                "time": self.time,
+                "reply_to": self.reply_to.json() if self.reply_to else None,
+                "edited": self.edited,
+                "subtext": self.subtext,
+            }
+
 
     # Изменение статуса
     def change_status(new_status: Dict[str, ft.Colors] = {"text": "В сети", "color": ft.Colors.GREEN}):
@@ -517,24 +619,36 @@ def chat_main(page: ft.Page, id = "10118"):
     
     
     def block_user(e):
-        print("Блокировка личности с номером:", id)
+        print("[] Блокировка личности с номером:", id)
     
     def report_user(e):
-        print("Пожаловаться на пользователя с номером:", id)
+        print("[] Пожаловаться на пользователя с номером:", id)
     
     def delete_chat(e):
-        print("Удалить чат с номером:", id)
+        print("[] Удалить чат с номером:", id)
     
     def search_user(e):
-        print("Поиск по чату")
+        print("[] Поиск по чату")
     
     def go_to_start(e):
-        print("В начало")
+        print("[] В начало")
     
     def send_chart_message_chat(text: str = None, content: FileAttachment = None):
         if content is not None:
             change_status({"text": "Отправляет файл...", "color": ft.Colors.BLUE})
-            chat_compliment.controls.append(ChatMessage(1, content, is_file=True, is_user=False, subtext=text))
+            sptext = text.split("--")
+            chat_compliment.controls.append(ChatMessage(1, content, is_file=True, is_user=False, subtext=sptext[0]))
+
+            sptext.pop()
+            for i in sptext:
+                if i.strip() == "":
+                    continue
+                time.sleep(0.5)
+                change_status({"text": "Печатает...", "color": ft.Colors.BLUE})
+                time.sleep(len(i) / 10)
+                chat_compliment.controls.append(ChatMessage(1, i, is_user=False))
+                chat_compliment.update()
+
             chat_compliment.update()
         elif text is not None:
             for i in text.split("--"):
@@ -550,6 +664,8 @@ def chat_main(page: ft.Page, id = "10118"):
         
 
         change_status({"text": "В сети", "color": ft.Colors.GREEN})
+        save_chat(id, chat_compliment.controls, historys[id])
+
     
     def send_system_message_chat(text: str):
         chat_compliment.controls.append(ChatMessage(1, text, is_system=True))
@@ -578,13 +694,24 @@ def chat_main(page: ft.Page, id = "10118"):
             otvet = "Извини, я не могу ответить на это сейчас."
 
             if response.choices:
-                print("Ответ присутствует")
+                print("Ответ присутствует...", end="")
                 choice = response.choices[0]
                 if choice.finish_reason == "tool_calls":
                     generate_response = True
-                    print("Вызвана функция..", end="")
+                    print("функция..", end="")
                     function_calls = choice.message.tool_calls
-                    historys[id].append(choice.message)
+                    historys[id].append({
+                        "role": "assistant",
+                        "content": choice.message.content,
+                        "tool_calls": [{
+                            "id": tc.id,
+                            "type": tc.type,
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        } for tc in choice.message.tool_calls] if choice.message.tool_calls else None
+                    })
                     for function in function_calls:
                         if function.function.name == "image":
                             print("image")
@@ -669,21 +796,22 @@ def chat_main(page: ft.Page, id = "10118"):
                             if response.choices and response.choices[0].message:
                                 otvet = response.choices[0].message.content
                             else:
-                                print("Warning: No message content after tool call response.")
+                                print("[!]: No message content after tool call response.")
                                 # otvet remains the default message set earlier or error message
                         except Exception as e:
-                            print(f"Error during second API call after tool execution: {e}")
+                            print(f"! Error during second API call after tool execution: {e}")
                             otvet = "Произошла ошибка после обработки запроса функции."
 
 
                 # Check if message exists after potential tool call or if it was a direct response
                 elif choice.message:
+                    print(f"текст: {choice.message.content}")
                     otvet = choice.message.content
                 else:
-                    print("Warning: Received response with no message content.")
+                    print("[!]: Received response with no message content.")
                     # otvet remains the default message set earlier
             else:
-                print("Warning: Received empty response choices.")
+                print("[!]: Received empty response choices.")
                 # otvet remains the default message set earlier
 
 
@@ -695,6 +823,8 @@ def chat_main(page: ft.Page, id = "10118"):
             send_chart_message_chat(otvet)
             
             message_input.focus()
+            save_chat(id, chat_compliment.controls, historys[id])
+        
             
             
     back_icon = ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, on_click=lambda e: main(page))
@@ -729,7 +859,43 @@ def chat_main(page: ft.Page, id = "10118"):
     page.add(
         top_navigation
     )
-    chat_compliment = ft.Column([ChatMessage(1, message["content"], is_user=message["role"] == "user") for message in historys[id][2:]], alignment=ft.MainAxisAlignment.END, spacing=5, scroll=ft.ScrollMode.HIDDEN, auto_scroll=True)
+    # load_chat_saving_history
+    # Пример json обьекта:
+    # {
+    #         "id": 1,
+    #         "content": "лайк",
+    #         "is_user": false,
+    #         "is_system": false,
+    #         "is_file": false,
+    #         "is_text": true,
+    #         "reactions": [],
+    #         "time": 1755349829.138294,
+    #         "reply_to": null,
+    #         "edited": false,
+    #         "subtext": null
+    #     }
+    lcsh = load_chat(id)
+    if lcsh is not None:
+        replete_msgs = []
+        for m in lcsh["chat"]:
+            if m["is_file"] == True:
+                if m["content"]["file_type"] == "image":
+                    content = ImageAttachment(
+                        base64=m["content"]["content"],
+                        file_size=m["content"]["file_size"],
+                        url=m["content"]["url"],
+                        file_name=m["content"].get("file_name", "image.png")
+                    )
+            else:
+                content = m["content"]
+
+
+
+
+            replete_msgs.append(ChatMessage(id=m["id"], content=content, is_user=m["is_user"], is_system=m["is_system"], is_file=m["is_file"], is_text=m["is_text"], reactions=m["reactions"], time=m["time"], reply_to=m["reply_to"], edited=m["edited"], subtext=m["subtext"]))
+        chat_compliment = ft.Column(replete_msgs, alignment=ft.MainAxisAlignment.END, spacing=5, scroll=ft.ScrollMode.HIDDEN, auto_scroll=True)
+    else:
+        chat_compliment = ft.Column([ChatMessage(1, "лайк", is_user=False)], alignment=ft.MainAxisAlignment.END, spacing=5, scroll=ft.ScrollMode.HIDDEN, auto_scroll=True)
     chat_content = ft.Container(
         ft.SelectionArea(chat_compliment), 
         expand=True)
@@ -754,8 +920,8 @@ def chat_main(page: ft.Page, id = "10118"):
 
 thinder_svg = "PHN2ZyB3aWR0aD0iMjQ3IiBoZWlnaHQ9IjI4MiIgdmlld0JveD0iMCAwIDI0NyAyODIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xpcC1ydWxlPSJldmVub2RkIiBkPSJNNzMuOTM2OSAxMTMuODI3QzczLjYzMzcgMTEzLjkzNiA3My4yNzI0IDExMy44MzUgNzMuMDY5NyAxMTMuNTg3QzYzLjQ3ODIgMTAwLjk2MiA2MS4wNjg5IDc5LjI1ODcgNjAuNDgxOSA3MC45MjM4QzYwLjM2MjEgNjkuMzE4MiA1OC41NDY3IDY4LjQxNTggNTcuMDkyNyA2OS4yMjEzQzI3LjQ3OTEgODUuNzU4OCAwIDEyNC44NzkgMCAxNjIuNjQ4QzAgMjI3LjUzNiA0NS4zMzMzIDI4MS45NjkgMTIzLjM3NSAyODEuOTY5QzE5Ni40OTIgMjgxLjk2OSAyNDYuNzUgMjI1Ljg2NyAyNDYuNzUgMTYyLjY1N0MyNDYuNzUgNzkuOTQ2MSAxODcuMjk2IDI0Ljk5MjIgMTM0LjM0IDAuMTUwNDY1QzEzMy4xIC0wLjQzMDQ1NSAxMzEuNDU4IDAuNzY1NTY1IDEzMS42MzkgMi4xMTUxMUMxMzguNDYgNDYuNjg3NyAxMjkuMDM4IDk1LjE2NTIgNzMuOTM2OSAxMTMuODI3WiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+Cg=="
 
-        
-liked = []
+liked = [file_name.replace(".json", "") for file_name in os.listdir("chats")]
+
 disliked = []
 chats_charter_ids = []
 generation_in_progress = False  # Add this line to initialize the missing variable
@@ -1058,10 +1224,15 @@ def main(page: ft.Page):
         chat_main(page, chapter.id)
     def generate_char_chat(id):
         chapter = Chapter(id)
-        if id in historys:
-            chapter_messages = historys[id]
+        lc = load_chat(id)
+        if lc is not None:
             # получаем последнее сообщение или если нет то "лайк"
-            last_message = chapter_messages[-1]["content"] if chapter_messages else "лайк"
+            msg = lc["chat"][-1]
+            if msg['is_file'] == False:
+                last_message = msg['content']
+            else:
+                last_message = f"[{msg['content']["file_type"]}] {msg["subtext"]}"
+
         else:
             last_message = "лайк"
         return ft.Container(ft.Row([ft.Container(ft.GestureDetector(content=ft.Image(src=f"chapters/photos/{id}.jpg", border_radius=50, height=60, width=60, fit=ft.ImageFit.COVER), on_long_press_start=lambda e: flet_photo_viewer(page, image_to_base64(f"assets/chapters/photos/{id}.png"))), padding=5), 
@@ -1143,5 +1314,6 @@ def main(page: ft.Page):
     go_to_chats()
     
     # show_notification(content=ft.Row([ft.Text("Всего 4 профиля", color=ft.Colors.BLACK, font_family="TTRounds", size=15)], alignment=ft.MainAxisAlignment.CENTER), on_click=None)
-ft.app(main, assets_dir="assets")
+ft.app(main, assets_dir="assets", view=ft.AppView.WEB_BROWSER)
+
 

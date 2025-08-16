@@ -264,13 +264,13 @@ while True:
                         image = Image.open(io.BytesIO(image_data))
                         image.show()
 
-                        image_result_msg = "Успешно созданно и отправленно изображение"
+                        # Не отправляем base64 в tool_response, только подтверждение
+                        image_result_msg = "Изображение отправлено"
                         tool_response = {
                             "role": "tool",
                             "content": image_result_msg,
-                            "tool_call_id": function.id  # Указываем ID вызова функции
+                            "tool_call_id": function.id
                         }
-                        # Append the tool response message (content is the result string)
                         msgs.append(tool_response)
 
                     except Exception as e:

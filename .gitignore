@@ -54,3 +54,5 @@ Thumbs.db
 # Storage and output directories
 storage/
 output/
+chats/*
+
