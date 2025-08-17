@@ -2,6 +2,7 @@ from pickle import NONE
 from openai import OpenAI
 import json
 import os
+from pydantic import NonNegativeFloat
 from together import Together
 import base64
 import io
@@ -461,6 +462,8 @@ def chat_main(page: ft.Page, id = "10118"):
         "Emoji": "emojis.ttf"
     }
     name = chapter.name
+    attach_user_files_paths = []
+
     status = {"text": "был(а) недавно", "color": ft.Colors.GREY_500}
     model = "gemini-2.5-flash"
     # Инициализируем системный промпт и сообщения
@@ -670,7 +673,7 @@ def chat_main(page: ft.Page, id = "10118"):
                 chat_compliment.controls.append(ChatMessage(1, i, is_user=False))
                 chat_compliment.update()
         
-
+ 
         change_status({"text": "В сети", "color": ft.Colors.GREEN, "rive": "active"})
 
         save_chat(id, chat_compliment.controls, historys[id])
@@ -687,12 +690,35 @@ def chat_main(page: ft.Page, id = "10118"):
     def send_message_chat(e):
         if message_input.value.replace(" ", "") != "":
             text = message_input.value
-            chat_compliment.controls.append(ChatMessage(1, message_input.value, is_user=True))
+            if attach_user_files_paths is None:
+                chat_compliment.controls.append(ChatMessage(1, message_input.value, is_user=True))
+                historys[id].append({"role": "user", "content": text})
+            else:
+                ai_chat_compl = [{
+                        "type": "text",
+                        "text": text
+                        }]
+                for path in attach_user_files_paths:
+                    image_base_64 = image_to_base64(path)
+                    chat_compliment.controls.append(ChatMessage(1, ImageAttachment(base64=image_base_64, file_size=1, url="localhost"), is_user=True, is_file=True))
+                    ai_chat_compl.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{image_base_64}"
+                        }
+                        })
+                historys[id].append({
+                    "role": "user",
+                    "content": ai_chat_compl
+                    }
+                    )
+                chat_compliment.controls.append(ChatMessage(1, message_input.value, is_user=True))
             message_input.value = ""
             message_input.update()
+            file_input_button_att.visible = False
+            file_input_button_att.update()
             input_message_change(message_input)
             chat_compliment.update()
-            historys[id].append({"role": "user", "content": text})
             response = client.chat.completions.create(
                 model=model,
                 messages=historys[id],
@@ -910,7 +936,7 @@ def chat_main(page: ft.Page, id = "10118"):
                 content = m["content"]
 
 
-
+    
 
             replete_msgs.append(ChatMessage(id=m["id"], content=content, is_user=m["is_user"], is_system=m["is_system"], is_file=m["is_file"], is_text=m["is_text"], reactions=m["reactions"], time=m["time"], reply_to=m["reply_to"], edited=m["edited"], subtext=m["subtext"]))
         chat_compliment = ft.Column(replete_msgs, alignment=ft.MainAxisAlignment.END, spacing=5, scroll=ft.ScrollMode.HIDDEN, auto_scroll=True)
@@ -920,15 +946,51 @@ def chat_main(page: ft.Page, id = "10118"):
         ft.SelectionArea(chat_compliment), 
         expand=True)
     
+
+    def file_user_attachment(e): 
+        print("[] Открывается выборка файлов")
+        
+        def bs_dismissed(e):
+            page.overlay.remove(bs)
+
+        def select_file(e: ft.FilePickerResultEvent):
+            path = e.files[0].path
+            bs.open = False
+            page.overlay.remove(fp)
+            file_input_button_att.visible = True
+            file_input_button_att.update()
+            attach_user_files_paths.append(path)
+            page.update()
+
+
+        fp = ft.FilePicker(on_result=select_file)
+        bs = ft.BottomSheet(
+        ft.Container(
+            ft.Row([ft.Container(ft.Column([ft.Icon(ft.Icons.ATTACH_FILE_OUTLINED), ft.Text("Выбрать файл")], horizontal_alignment=ft.CrossAxisAlignment.CENTER), alignment=ft.alignment.center, padding=30,
+            bgcolor=ft.Colors.SECONDARY_CONTAINER, border_radius=20, height=100, on_click=lambda _: fp.pick_files("Выбор файлов (Пока что тока картинки)", file_type=ft.FilePickerFileType.IMAGE), ink=True)]),
+            padding=20
+        ),
+        open=True,
+        on_dismiss=bs_dismissed,
+        )
+
+        page.overlay.append(fp)
+        page.overlay.append(bs)
+        page.update()
+
+
     page.add(chat_content)
     message_input = ft.TextField(hint_text="Сообщение",  multiline=True, max_lines=6, expand=True, border=ft.InputBorder.NONE, on_change=input_message_change, on_submit=send_message_chat)
-    file_input_button = ft.IconButton(ft.Icons.ATTACH_FILE_ROUNDED, height=50, width=50)
+    file_input_button = ft.IconButton(ft.Icons.ATTACH_FILE_ROUNDED, height=50, width=50, on_click=file_user_attachment)
+
+    file_input_button_att = ft.Container(height=10, width=10, bgcolor=ft.Colors.RED, right = 11, top=6, border_radius=10, visible=False)
+
     voice_message_button = ft.IconButton(ft.Icons.MIC_ROUNDED, height=50, width=50, on_click=toggle_voice_video_button)
     video_message_button = ft.IconButton(ft.Icons.CAMERA_ROUNDED, height=50, width=50, on_click=toggle_voice_video_button)
     send_action_bottom_switch = ft.AnimatedSwitcher(voice_message_button, transition=ft.AnimatedSwitcherTransition.ROTATION, reverse_duration=10, duration=500, switch_in_curve=ft.AnimationCurve.EASE_OUT_BACK, data="mic")
     send_message_button = ft.IconButton(ft.Icons.SEND_ROUNDED, height=50, width=50, on_click=send_message_chat)
     
-    bottom_nav_row = ft.Row([file_input_button, message_input, send_action_bottom_switch], spacing=1, vertical_alignment=ft.CrossAxisAlignment.END)
+    bottom_nav_row = ft.Row([ft.Stack([file_input_button, file_input_button_att]), message_input, send_action_bottom_switch], spacing=1, vertical_alignment=ft.CrossAxisAlignment.END)
     page.add(ft.Container(
         bottom_nav_row,
         padding=ft.padding.only(bottom=10),
