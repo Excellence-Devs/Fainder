@@ -1,8 +1,34 @@
-# Исключаем папки с данными персонажей
+# Исключаем папки с данными персонажей и пользовательские чаты
 assets/chapters/
 assets/chapters_old/
+chats/*
+!chats/.gitkeep
 
-# Python
+# Директории вывода и временного хранилища
+storage/*
+!storage/.gitkeep
+output/*
+!output/.gitkeep
+
+# Автоматически генерируемые тестовые и медиа-файлы
+*.wav
+*.webp.jpg
+test_png.png
+277cdf85735ffa76c842740760657f27_*.jpg
+
+# Базы данных и логи
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Секреты и переменные окружения
+.env
+.env.*
+*.env
+secrets.json
+
+# Python кэш и артефакты
 __pycache__/
 *.py[cod]
 *$py.class
@@ -24,6 +50,9 @@ wheels/
 .installed.cfg
 *.egg
 PYTHON_PATH
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Virtual Environment
 .venv/
@@ -31,14 +60,17 @@ venv/
 ENV/
 env/
 
-# IDE
+# IDE и заметки
 .idea/
 .vscode/
+Obsidian/
+.obsidian/
 *.swp
 *.swo
 *~
 
-# OS
+# OS файлы
+desktop.ini
 .DS_Store
 .DS_Store?
 ._*
@@ -46,13 +78,10 @@ env/
 .Trashes
 ehthumbs.db
 Thumbs.db
+$RECYCLE.BIN/
 
 # Temporary files
 *.tmp
 *.temp
-
-# Storage and output directories
-storage/
-output/
-chats/*
+*.bak
 
