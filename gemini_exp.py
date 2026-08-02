@@ -53,10 +53,16 @@ def url_to_base64(image_url):
         print(f"Общая ошибка: {e}")
         return None
 
-def generate_image(prompt) -> str:
-    image_poll = flux.kontext_pro(f"{prompt}, realistic handheld photo, taken with a smartphone, natural imperfections, slight motion blur, subtle lens distortion, mild overexposure in highlights, soft shadows, slight chromatic aberration, high ISO grain, ambient light only, natural color cast, no artificial blur, no overly perfect skin", aspect_ratio=AscpectRatio.PORTRAIT)
-    image = flux.pooling(image_poll)
-    print(image)
+def generate_image(prompt) -> str | None:
+    try:
+      image_poll = flux.kontext_pro(f"{prompt}, realistic handheld photo, taken with a smartphone, natural imperfections, slight motion blur, subtle lens distortion, mild overexposure in highlights, soft shadows, slight chromatic aberration, high ISO grain, ambient light only, natural color cast, no artificial blur, no overly perfect skin", aspect_ratio=AscpectRatio.PORTRAIT)
+      image = flux.pooling(image_poll)
+      print(image)
+    except Exception as e:
+      print(f"{e} Генерация с помощью другой модели...")
+      image_poll = flux.x1_1_pro(f"{prompt}, realistic handheld photo, taken with a smartphone, natural imperfections, slight motion blur, subtle lens distortion, mild overexposure in highlights, soft shadows, slight chromatic aberration, high ISO grain, ambient light only, natural color cast, no artificial blur, no overly perfect skin", aspect_ratio=AscpectRatio.PORTRAIT)
+      image = flux.pooling(image_poll)
+      print(image)
     return url_to_base64(image)
 
 

@@ -1,4 +1,3 @@
-from pickle import NONE
 from openai import OpenAI
 import json
 import os
@@ -17,6 +16,7 @@ import random
 import threading
 from gemini_exp import random_person_generate, generate_person
 from flet_rive import Rive, rive
+
 
 
 # Проверка существования папки chats/
@@ -67,19 +67,7 @@ gemini_api_key = anketa["api_keys"]["gemini"]
 
 historys = {}
 
-def process_image(input_path, output_path):
-    # Открываем изображение
-    img = Image.open(input_path).convert('RGB')
 
-    # 1. Делаем бледным (понижаем контраст и насыщенность)
-    img = ImageEnhance.Color(img).enhance(0.7)  # Меньше насыщенности
-    img = ImageEnhance.Contrast(img).enhance(0.9)  # Меньше контраста
-
-    # 2. Сжимаем (JPEG с низким качеством)
-    temp_path = output_path
-    img.save(temp_path, "JPEG", quality=30)
-    
-    
 def image_to_base64(image_path):
     with open(image_path, 'rb') as img:
         return base64.b64encode(img.read()).decode('utf-8')
@@ -159,6 +147,23 @@ tools = [
                 "required": ["reason"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "react",
+            "description": "Поставить реакцию на последнее сообщение пользователя. Используй это, когда пользователь пишет что-то смешное, грустное, шокирующее, интригующее или когда тебе нравится написанное.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "emoji": {
+                        "type": "string",
+                        "description": "Эмодзи для реакции. Доступные: ❤️, 👍, 👎, 😂, 😢, 😠, 😲, 😊, 😴, 🤔, 🔞, 💋, 💦, 🚫, 🙏, 🥶, 🥵, 🤒, 💀"
+                    }
+                },
+                "required": ["emoji"]
+            }
+        }
     }
 ]
 
@@ -215,6 +220,7 @@ prompt = """
 
 Начни общение, строго следуя личности из схемы.
 Если просят скинуть/показать/сделать фотографию используй функцию image. НИЧЕГО НЕ УТОЧНЯЙ.
+Если хочешь отреагировать на сообщение пользователя (смехом, злостью, любовью), используй функцию react, можешь использовать её вместе с обычным ответом.
 Пиши "--" что бы перейти на следующее сообщение. типо "привет--как дела?"
 """
 
@@ -241,7 +247,7 @@ def flet_photo_viewer(page, base64: str):
         content=ft.Stack([
             # Фон для закрытия по клику
             ft.Container(
-                bgcolor=ft.colors.BLACK87,
+                bgcolor=ft.Colors.BLACK87,
                 on_click=close_viewer,
                 expand=True,
             ),
@@ -250,9 +256,9 @@ def flet_photo_viewer(page, base64: str):
             # Кнопка закрытия
             ft.Container(
                 content=ft.IconButton(
-                    icon=ft.icons.CLOSE,
-                    icon_color=ft.colors.WHITE,
-                    bgcolor=ft.colors.BLACK54,
+                    icon=ft.Icons.CLOSE,
+                    icon_color=ft.Colors.WHITE,
+                    bgcolor=ft.Colors.BLACK54,
                     on_click=close_viewer,
                 ),
                 top=20,
@@ -261,7 +267,7 @@ def flet_photo_viewer(page, base64: str):
         ]),
         width=page.window.width,
         height=page.window.height,
-        bgcolor=ft.colors.BLACK87,
+        bgcolor=ft.Colors.BLACK87,
     )
     
     # Добавляем в overlay для отображения поверх всего
@@ -556,7 +562,8 @@ def chat_main(page: ft.Page, id = "10118"):
                 reactions_row = ft.Row(
                     reactions_controls, 
                     alignment=ft.MainAxisAlignment.START, 
-                    spacing=-5 # Adjust spacing for overlap if desired
+                    spacing=-5, # Adjust spacing for overlap if desired
+                    data="reactions"
                 )
                 message_column.controls.append(reactions_row)
 
@@ -593,6 +600,37 @@ def chat_main(page: ft.Page, id = "10118"):
                 "subtext": self.subtext,
             }
 
+        def add_reaction(self, emoji):
+            if emoji not in self.reactions:
+                self.reactions.append(emoji)
+                message_column = self.controls[0].content
+                reactions_row_index = -1
+                for i, control in enumerate(message_column.controls):
+                    if isinstance(control, ft.Row) and getattr(control, "data", None) == "reactions":
+                        reactions_row_index = i
+                        break
+                
+                reaction_container = ft.Container(
+                            ft.Text(emoji, color=ft.Colors.WHITE, size=18, font_family="Emoji"),
+                            bgcolor=ft.Colors.with_opacity(0.3, ft.Colors.BLACK), 
+                            border_radius=20, 
+                            padding=ft.padding.symmetric(horizontal=5, vertical=2),
+                            ink=True,
+                            on_click=lambda e: print(f"() Реакция нажата: {emoji}")
+                        )
+
+                if reactions_row_index != -1:
+                    message_column.controls[reactions_row_index].controls.append(reaction_container)
+                else:
+                    reactions_row = ft.Row(
+                        [reaction_container], 
+                        alignment=ft.MainAxisAlignment.START, 
+                        spacing=-5,
+                        data="reactions"
+                    )
+                    message_column.controls.append(reactions_row)
+                self.update()
+
 
     # Изменение статуса
     def change_status(new_status: Dict[str, ft.Colors] = {"text": "В сети", "color": ft.Colors.GREEN, "rive": "typing"}):
@@ -627,28 +665,49 @@ def chat_main(page: ft.Page, id = "10118"):
     
     def block_user(e):
         print("[] Блокировка личности с номером:", id)
+        disliked.append(id)
+        if id in liked:
+            liked.remove(id)
+        main(page)
     
     def report_user(e):
         print("[] Пожаловаться на пользователя с номером:", id)
+        block_user(e)  # Логика та же, что и при блокировке
     
     def delete_chat(e):
         print("[] Удалить чат с номером:", id)
+        if id in liked:
+            liked.remove(id)
+        chat_file = f"chats/{id}.json"
+        if os.path.exists(chat_file):
+            try:
+                os.remove(chat_file)
+            except Exception as exc:
+                print("Не удалось удалить файл:", exc)
+        main(page)
     
     def search_user(e):
         print("[] Поиск по чату")
+        page.overlay.append(ft.SnackBar(content=ft.Text("Поиск пока в разработке :("), open=True))
+        page.update()
     
     def go_to_start(e):
         print("[] В начало")
+        chat_compliment.scroll_to(offset=0, duration=300)
     
     def send_chart_message_chat(text: str = None, content: FileAttachment = None):
         if content is not None:
             change_status({"text": "Отправляет файл...", "color": ft.Colors.BLUE, "rive": "sending_attachment"})
 
+            if text:
+                sptext = text.split("--")
+                subtext = sptext.pop(0).strip()
+            else:
+                sptext = []
+                subtext = None
 
-            sptext = text.split("--")
-            chat_compliment.controls.append(ChatMessage(1, content, is_file=True, is_user=False, subtext=sptext[0]))
+            chat_compliment.controls.append(ChatMessage(1, content, is_file=True, is_user=False, subtext=subtext))
 
-            sptext.pop()
             for i in sptext:
                 if i.strip() == "":
                     continue
@@ -656,7 +715,7 @@ def chat_main(page: ft.Page, id = "10118"):
                 change_status({"text": "Печатает...", "color": ft.Colors.BLUE, "rive": "typing"})
 
                 time.sleep(0.001)
-                chat_compliment.controls.append(ChatMessage(1, i, is_user=False))
+                chat_compliment.controls.append(ChatMessage(1, i.strip(), is_user=False))
                 chat_compliment.update()
 
             chat_compliment.update()
@@ -670,7 +729,7 @@ def chat_main(page: ft.Page, id = "10118"):
                 change_status({"text": "Печатает...", "color": ft.Colors.BLUE, "rive": "typing"})
 
                 time.sleep(0.001)
-                chat_compliment.controls.append(ChatMessage(1, i, is_user=False))
+                chat_compliment.controls.append(ChatMessage(1, i.strip(), is_user=False))
                 chat_compliment.update()
         
  
@@ -680,7 +739,7 @@ def chat_main(page: ft.Page, id = "10118"):
 
     
     def send_system_message_chat(text: str):
-        chat_compliment.controls.append(ChatMessage(1, text, is_system=True))
+        chat_compliment.controls.append(ChatMessage(1, text.strip(), is_system=True))
         chat_compliment.update()
         
     
@@ -690,8 +749,8 @@ def chat_main(page: ft.Page, id = "10118"):
     def send_message_chat(e):
         if message_input.value.replace(" ", "") != "":
             text = message_input.value
-            if attach_user_files_paths is None:
-                chat_compliment.controls.append(ChatMessage(1, message_input.value, is_user=True))
+            if not attach_user_files_paths:
+                chat_compliment.controls.append(ChatMessage(1, message_input.value.strip(), is_user=True))
                 historys[id].append({"role": "user", "content": text})
             else:
                 ai_chat_compl = [{
@@ -700,6 +759,7 @@ def chat_main(page: ft.Page, id = "10118"):
                         }]
                 for path in attach_user_files_paths:
                     image_base_64 = image_to_base64(path)
+
                     chat_compliment.controls.append(ChatMessage(1, ImageAttachment(base64=image_base_64, file_size=1, url="localhost"), is_user=True, is_file=True))
                     ai_chat_compl.append({
                         "type": "image_url",
@@ -707,12 +767,13 @@ def chat_main(page: ft.Page, id = "10118"):
                             "url": f"data:image/png;base64,{image_base_64}"
                         }
                         })
+                attach_user_files_paths.clear()
                 historys[id].append({
                     "role": "user",
                     "content": ai_chat_compl
                     }
                     )
-                chat_compliment.controls.append(ChatMessage(1, message_input.value, is_user=True))
+                chat_compliment.controls.append(ChatMessage(1, message_input.value.strip(), is_user=True))
             message_input.value = ""
             message_input.update()
             file_input_button_att.visible = False
@@ -776,12 +837,6 @@ def chat_main(page: ft.Page, id = "10118"):
                                 # image = Image.open(io.BytesIO(image_data))
                                 # image.show()
                                 print("Картинка сгенерирована и отправляется...")
-                                send_chart_message_chat(content=ImageAttachment(base64=image_base64, file_size=len(image_base64), url=""), text = prompt_json.get("message", None))
-
-
-
-
-
                                 image_result_msg = "Успешно созданно и отправленно изображение"
                                 tool_response = {
                                     "role": "tool",
@@ -790,6 +845,9 @@ def chat_main(page: ft.Page, id = "10118"):
                                 }
                                 # Append the tool response message (content is the result string)
                                 historys[id].append(tool_response)
+
+                                send_chart_message_chat(content=ImageAttachment(base64=image_base64, file_size=len(image_base64), url=""), text = prompt_json.get("message", None))
+
                                 if prompt_json.get("message", None) is not None:
                                     generate_response = False
                                     return
@@ -821,11 +879,49 @@ def chat_main(page: ft.Page, id = "10118"):
                                 message_input.disabled = True
                                 message_input.update()
                                 disliked.append(id)
-                                liked.remove(id)
-                                return otvet
+                                if id in liked:
+                                    liked.remove(id)
+                                historys[id].append({
+                                    "role": "tool",
+                                    "content": otvet,
+                                    "tool_call_id": function.id
+                                })
+                                send_chart_message_chat(otvet)
+                                return
                             except Exception as e:
                                 print(f"Ошибка при блокировке пользователя: {e}")
                                 otvet = "Произошла ошибка при блокировке пользователя." 
+                                historys[id].append({
+                                    "role": "tool",
+                                    "content": otvet,
+                                    "tool_call_id": function.id
+                                })
+
+                        elif function.function.name == "react":
+                            try:
+                                prompt_json = json.loads(function.function.arguments)
+                                emoji = prompt_json["emoji"]
+                                print(f"[] ИИ ставит реакцию: {emoji}")
+                                
+                                for msg in reversed(chat_compliment.controls):
+                                    if msg.is_user:
+                                        msg.add_reaction(emoji)
+                                        break
+                                
+                                otvet = f"Вы успешно отреагировали на сообщение: {emoji}"
+                                historys[id].append({
+                                    "role": "tool",
+                                    "content": otvet,
+                                    "tool_call_id": function.id
+                                })
+                            except Exception as e:
+                                print(f"Ошибка при постановке реакции: {e}")
+                                otvet = "Ошибка при постановке реакции."
+                                historys[id].append({
+                                    "role": "tool",
+                                    "content": otvet,
+                                    "tool_call_id": function.id
+                                })
 
 
 
@@ -967,7 +1063,7 @@ def chat_main(page: ft.Page, id = "10118"):
         bs = ft.BottomSheet(
         ft.Container(
             ft.Row([ft.Container(ft.Column([ft.Icon(ft.Icons.ATTACH_FILE_OUTLINED), ft.Text("Выбрать файл")], horizontal_alignment=ft.CrossAxisAlignment.CENTER), alignment=ft.alignment.center, padding=30,
-            bgcolor=ft.Colors.SECONDARY_CONTAINER, border_radius=20, height=100, on_click=lambda _: fp.pick_files("Выбор файлов (Пока что тока картинки)", file_type=ft.FilePickerFileType.IMAGE), ink=True)]),
+            bgcolor=ft.Colors.SECONDARY_CONTAINER, border_radius=20, height=100, on_click=lambda _: fp.pick_files("Выбор файлов (Пока что тока картинки)", file_type=ft.FilePickerFileType.IMAGE, allow_multiple=True), ink=True)]),
             padding=20
         ),
         open=True,
@@ -1317,7 +1413,7 @@ def main(page: ft.Page):
 
         else:
             last_message = "лайк"
-        return ft.Container(ft.Row([ft.Container(ft.GestureDetector(content=ft.Image(src=f"chapters/photos/{id}.jpg", border_radius=50, height=60, width=60, fit=ft.ImageFit.COVER), on_long_press_start=lambda e: flet_photo_viewer(page, image_to_base64(f"assets/chapters/photos/{id}.png"))), padding=5), 
+        return ft.Container(ft.Row([ft.Container(ft.GestureDetector(content=ft.Image(src_base64=image_to_base64(f"assets/chapters/photos/{id}.jpg"), border_radius=50, height=60, width=60, fit=ft.ImageFit.COVER), on_long_press_start=lambda e: flet_photo_viewer(page, image_to_base64(f"assets/chapters/photos/{id}.png"))), padding=5), 
 
                                                 ft.Row([ft.Column([ft.Text(chapter.name, color=ft.Colors.BLACK, font_family="TTRounds", size=18), ft.Text(last_message, color=ft.Colors.GREY, size=18)], alignment=ft.MainAxisAlignment.START, spacing=2)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
                                                  ], vertical_alignment=ft.CrossAxisAlignment.CENTER), expand=True, border_radius=15, expand_loose=True, height=70, data=chapter, on_click=open_chat, bgcolor=ft.Colors.WHITE, ink=True)
@@ -1345,7 +1441,6 @@ def main(page: ft.Page):
                 
         page.bottom_appbar.data = "chats"
         page.add(ft.Column([ft.Row([ft.Text("Чаты", color=ft.Colors.BLACK, font_family="TTRounds", size=20, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.CENTER), ft.Divider(), chats_list],spacing=2, expand=True))
-        chats_list.controls.clear()
 
     
     
@@ -1397,5 +1492,6 @@ def main(page: ft.Page):
     
     # show_notification(content=ft.Row([ft.Text("Всего 4 профиля", color=ft.Colors.BLACK, font_family="TTRounds", size=15)], alignment=ft.MainAxisAlignment.CENTER), on_click=None)
 ft.app(main, assets_dir="assets")
+
 
 
